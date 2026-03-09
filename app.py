@@ -113,16 +113,11 @@ class SupabaseButler:
             return False
 
     def get_global_averages(self) -> List[float]:
-        """
-        Berekent het gemiddelde van alle leerlingen in de database.
-        Als er nog niemand heeft ingevuld, vallen we terug op een score van 3.0.
-        """
         try:
             response = self.client.table(self.table_logs).select("*").execute()
             data = response.data
             
-            if not data:
-                return [3.0, 3.0, 3.0, 3.0, 3.0] # Fallback
+            if not data: return [3.0, 3.0, 3.0, 3.0, 3.0] 
                 
             n = len(data)
             avg_part = sum(row["participation"] for row in data) / n
@@ -133,7 +128,6 @@ class SupabaseButler:
             
             return [avg_part, avg_full, avg_exact, avg_eng, avg_enjoy]
         except Exception as e:
-            st.warning("Live gemiddelde ophalen mislukt, we gebruiken fallback.")
             return [3.0, 3.0, 3.0, 3.0, 3.0]
 
 db_butler = SupabaseButler()
@@ -178,26 +172,53 @@ def render_auth_screen() -> None:
                         st.rerun() 
                     else: st.error("Oops! Wrong name or code.")
 
-def generate_feedback_text(skill_name: str, student_score: int, global_avg: float) -> str:
-    if student_score > global_avg: return f"🌟 **{skill_name}**: Awesome! You scored higher than the global average ({global_avg:.1f})."
-    elif student_score == round(global_avg) or (student_score >= 4 and global_avg >= 4): return f"✅ **{skill_name}**: Solid work! You are right on track."
-    else: return f"🚀 **{skill_name}**: Room to grow! The average is {global_avg:.1f}. Try to push a bit more next time."
+def generate_smart_challenge(skill_name: str, score: int, avg: float) -> str:
+    """Genereert gepersonaliseerde, context-specifieke challenges."""
+    
+    if skill_name == "English Only":
+        if score >= 4:
+            return "🌟 **English Only**: You already speak English almost all the time! **Challenge:** Before answering, pause for 2 seconds to structure your thoughts so your sentence becomes even more powerful."
+        else:
+            return "🚀 **English Only**: **Challenge:** Next lesson, try asking 'How do you say X in English?' instead of switching back to Dutch immediately."
+            
+    elif skill_name == "Participation":
+        if score >= 4:
+            return "🌟 **Participation**: Great energy today! **Challenge:** Next time, try to encourage a quieter classmate to share their opinion too."
+        else:
+            return "🚀 **Participation**: **Challenge:** Set a small goal for yourself next lesson: raise your hand at least once, even if you are not 100% sure of the answer."
+            
+    elif skill_name == "Full Sentences":
+        if score >= 4:
+            return "🌟 **Full Sentences**: You communicate clearly. **Challenge:** Try to use advanced connecting words like 'however', 'therefore', or 'although' in your next answers."
+        else:
+            return "🚀 **Full Sentences**: **Challenge:** Instead of giving 1-word answers, try to start your response by repeating part of the teacher's question."
+            
+    elif skill_name == "Exact Words":
+        if score >= 4:
+            return "🌟 **Exact Words**: Excellent vocabulary hunting! **Challenge:** Try to pick up one completely new expression from a classmate or the teacher next lesson."
+        else:
+            return "🚀 **Exact Words**: **Challenge:** When you can't find a word, try to describe it in English (e.g., 'the thing you use to...') instead of giving up."
 
 def render_radar_chart(student_scores: List[int], global_averages: List[float]) -> None:
     categories = ['Participation', 'Full Sentences', 'Exact Words', 'English Only', 'Enjoyment']
+    
+    # --- DE FIX VOOR DE RADAR CHART ---
+    # Voeg het eerste element toe aan het einde van de lijst om de cirkel (polygoon) te sluiten.
+    closed_categories = categories + [categories[0]]
+    closed_student = student_scores + [student_scores[0]]
+    closed_global = global_averages + [global_averages[0]]
+    
     fig_radar = go.Figure()
     
-    # Algemeen Gemiddelde (Subtiel grijs op de achtergrond)
     fig_radar.add_trace(go.Scatterpolar(
-        r=global_averages, theta=categories, fill='toself', 
+        r=closed_global, theta=closed_categories, fill='toself', 
         name='All Students Average',
         line_color='rgba(150, 150, 150, 0.5)', fillcolor='rgba(200, 200, 200, 0.2)',
         line_shape='spline', line_width=2
     ))
     
-    # Jouw Score (Knalt eruit in fel blauw)
     fig_radar.add_trace(go.Scatterpolar(
-        r=student_scores, theta=categories, fill='toself', name='Your Score',
+        r=closed_student, theta=closed_categories, fill='toself', name='Your Score',
         line_color='#4A90E2', fillcolor='rgba(74, 144, 226, 0.3)',
         line_shape='spline', line_width=4
     ))
@@ -267,17 +288,17 @@ def render_dashboard() -> None:
                     scores["exact_words"], scores["english_only"], scores["lesson_enjoyment"]
                 ]
                 
-                # Haal het live gemiddelde op uit de database
                 global_averages = db_butler.get_global_averages()
                 
                 st.markdown("### Your Growth Radar")
                 render_radar_chart(student_array, global_averages)
                 
                 st.markdown("### AI Coach Feedback")
-                st.info(generate_feedback_text("Participation", scores["participation"], global_averages[0]))
-                st.info(generate_feedback_text("Full Sentences", scores["full_sentences"], global_averages[1]))
-                st.info(generate_feedback_text("Exact Words", scores["exact_words"], global_averages[2]))
-                st.info(generate_feedback_text("English Only", scores["english_only"], global_averages[3]))
+                # Roep de nieuwe Smart Challenge generator aan
+                st.info(generate_smart_challenge("Participation", scores["participation"], global_averages[0]))
+                st.info(generate_smart_challenge("Full Sentences", scores["full_sentences"], global_averages[1]))
+                st.info(generate_smart_challenge("Exact Words", scores["exact_words"], global_averages[2]))
+                st.info(generate_smart_challenge("English Only", scores["english_only"], global_averages[3]))
                 
             else:
                 st.info("👈 Fill in your Pulse Check on the left to unlock your Radar and personalized feedback!")
