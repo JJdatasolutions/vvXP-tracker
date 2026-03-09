@@ -4,7 +4,6 @@ import plotly.graph_objects as go
 import hashlib
 from dataclasses import dataclass
 from typing import Optional, Dict, List, Any
-
 from supabase import create_client, Client
 
 # ==========================================
