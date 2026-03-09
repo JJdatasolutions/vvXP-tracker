@@ -45,14 +45,6 @@ MAP_FREQ = { "Not at all": 1, "Rarely": 2, "Sometimes": 3, "Usually": 4, "Always
 MAP_ENG = { "Mostly Dutch": 1, "More Dutch than English": 2, "Half/Half": 3, "Mostly English": 4, "100% English": 5 }
 MAP_ENJOY = { "Very boring": 1, "Rather boring": 2, "Neutral": 3, "Stimulating": 4, "Very stimulating": 5 }
 
-# Tidelijke nep-data om de vergelijking tussen klassen visueel cool te maken
-MOCK_CLASS_DATA = {
-    "5HW": [3.2, 3.5, 2.8, 3.0, 3.8],
-    "5MT": [4.0, 3.0, 3.8, 3.2, 4.1],
-    "6WEWI": [3.5, 4.2, 4.0, 4.5, 3.5],
-    "DEFAULT": [3.0, 3.0, 3.0, 3.0, 3.0]
-}
-
 @dataclass
 class StudentProfile:
     first_name: str
@@ -120,6 +112,30 @@ class SupabaseButler:
             st.error(f"Kon gegevens niet opslaan: {e}")
             return False
 
+    def get_global_averages(self) -> List[float]:
+        """
+        Berekent het gemiddelde van alle leerlingen in de database.
+        Als er nog niemand heeft ingevuld, vallen we terug op een score van 3.0.
+        """
+        try:
+            response = self.client.table(self.table_logs).select("*").execute()
+            data = response.data
+            
+            if not data:
+                return [3.0, 3.0, 3.0, 3.0, 3.0] # Fallback
+                
+            n = len(data)
+            avg_part = sum(row["participation"] for row in data) / n
+            avg_full = sum(row["full_sentences"] for row in data) / n
+            avg_exact = sum(row["exact_words"] for row in data) / n
+            avg_eng = sum(row["english_only"] for row in data) / n
+            avg_enjoy = sum(row["lesson_enjoyment"] for row in data) / n
+            
+            return [avg_part, avg_full, avg_exact, avg_eng, avg_enjoy]
+        except Exception as e:
+            st.warning("Live gemiddelde ophalen mislukt, we gebruiken fallback.")
+            return [3.0, 3.0, 3.0, 3.0, 3.0]
+
 db_butler = SupabaseButler()
 
 # ==========================================
@@ -162,44 +178,30 @@ def render_auth_screen() -> None:
                         st.rerun() 
                     else: st.error("Oops! Wrong name or code.")
 
-def generate_feedback_text(skill_name: str, student_score: int, class_avg: float) -> str:
-    if student_score > class_avg: return f"🌟 **{skill_name}**: Awesome! You scored higher than the average."
-    elif student_score == class_avg or (student_score >= 4 and class_avg >= 4): return f"✅ **{skill_name}**: Solid work! You are right on track."
-    else: return f"🚀 **{skill_name}**: Room to grow! Try to focus a bit more on this next time."
+def generate_feedback_text(skill_name: str, student_score: int, global_avg: float) -> str:
+    if student_score > global_avg: return f"🌟 **{skill_name}**: Awesome! You scored higher than the global average ({global_avg:.1f})."
+    elif student_score == round(global_avg) or (student_score >= 4 and global_avg >= 4): return f"✅ **{skill_name}**: Solid work! You are right on track."
+    else: return f"🚀 **{skill_name}**: Room to grow! The average is {global_avg:.1f}. Try to push a bit more next time."
 
-def render_radar_chart(student_scores: List[int], selected_classes: List[str]) -> None:
+def render_radar_chart(student_scores: List[int], global_averages: List[float]) -> None:
     categories = ['Participation', 'Full Sentences', 'Exact Words', 'English Only', 'Enjoyment']
     fig_radar = go.Figure()
     
-    # Palet met heldere, frisse kleuren voor de vergelijkende klassen
-    color_palette = [
-        ('rgba(255, 107, 107, 1)', 'rgba(255, 107, 107, 0.15)'),   # Koraal Rood
-        ('rgba(78, 205, 196, 1)', 'rgba(78, 205, 196, 0.15)'),     # Mint Groen
-        ('rgba(155, 93, 229, 1)', 'rgba(155, 93, 229, 0.15)'),     # Paars
-        ('rgba(255, 159, 28, 1)', 'rgba(255, 159, 28, 0.15)')      # Oranje
-    ]
+    # Algemeen Gemiddelde (Subtiel grijs op de achtergrond)
+    fig_radar.add_trace(go.Scatterpolar(
+        r=global_averages, theta=categories, fill='toself', 
+        name='All Students Average',
+        line_color='rgba(150, 150, 150, 0.5)', fillcolor='rgba(200, 200, 200, 0.2)',
+        line_shape='spline', line_width=2
+    ))
     
-    # Voeg een lijn toe voor elke geselecteerde klas
-    for idx, cls in enumerate(selected_classes):
-        # Haal nep-data op, of gebruik DEFAULT als de klas er niet in staat
-        cls_data = MOCK_CLASS_DATA.get(cls, MOCK_CLASS_DATA["DEFAULT"])
-        line_col, fill_col = color_palette[idx % len(color_palette)]
-        
-        fig_radar.add_trace(go.Scatterpolar(
-            r=cls_data, theta=categories, fill='toself', 
-            name=f'Average {cls}',
-            line_color=line_col, fillcolor=fill_col,
-            line_shape='spline', line_width=2
-        ))
-    
-    # Score van de leerling knalt eruit met een dikke blauwe lijn
+    # Jouw Score (Knalt eruit in fel blauw)
     fig_radar.add_trace(go.Scatterpolar(
         r=student_scores, theta=categories, fill='toself', name='Your Score',
         line_color='#4A90E2', fillcolor='rgba(74, 144, 226, 0.3)',
         line_shape='spline', line_width=4
     ))
     
-    # Strakke, lichte styling
     fig_radar.update_layout(
         template="plotly_white",
         polar=dict(
@@ -265,25 +267,17 @@ def render_dashboard() -> None:
                     scores["exact_words"], scores["english_only"], scores["lesson_enjoyment"]
                 ]
                 
+                # Haal het live gemiddelde op uit de database
+                global_averages = db_butler.get_global_averages()
+                
                 st.markdown("### Your Growth Radar")
-                
-                # De nieuwe Multi-Select Dropdown!
-                compare_classes = st.multiselect(
-                    "Compare your score with:",
-                    options=CLASSES,
-                    default=[user.student_class], # Selecteert standaard hun eigen klas
-                    max_selections=4 # Voorkom een onleesbare grafiek
-                )
-                
-                render_radar_chart(student_array, compare_classes)
+                render_radar_chart(student_array, global_averages)
                 
                 st.markdown("### AI Coach Feedback")
-                # Voor de feedback gebruiken we nu even de "DEFAULT" mock score (gemiddelde 3.0)
-                default_avg = MOCK_CLASS_DATA["DEFAULT"][0] 
-                st.info(generate_feedback_text("Participation", scores["participation"], default_avg))
-                st.info(generate_feedback_text("Full Sentences", scores["full_sentences"], default_avg))
-                st.info(generate_feedback_text("Exact Words", scores["exact_words"], default_avg))
-                st.info(generate_feedback_text("English Only", scores["english_only"], default_avg))
+                st.info(generate_feedback_text("Participation", scores["participation"], global_averages[0]))
+                st.info(generate_feedback_text("Full Sentences", scores["full_sentences"], global_averages[1]))
+                st.info(generate_feedback_text("Exact Words", scores["exact_words"], global_averages[2]))
+                st.info(generate_feedback_text("English Only", scores["english_only"], global_averages[3]))
                 
             else:
                 st.info("👈 Fill in your Pulse Check on the left to unlock your Radar and personalized feedback!")
