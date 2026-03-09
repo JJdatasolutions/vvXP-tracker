@@ -8,82 +8,49 @@ from typing import Optional, Dict, List, Any
 from supabase import create_client, Client
 
 # ==========================================
-# DEEL 1: CONFIGURATIE & MODELLEN (De Fundering)
+# DEEL 1: CONFIGURATIE & MODELLEN
 # ==========================================
 
 st.set_page_config(page_title="vvXP Tracker", page_icon="⚡", layout="wide")
 
-# Custom CSS voor een LICHT, fris en modern design
+# Lichte, moderne styling
 st.markdown("""
     <style>
-    /* Algemene achtergrond en tekstkleur */
-    .stApp {
-        background-color: #f4f7f6;
-        color: #2b2b2b;
-    }
+    .stApp { background-color: #f4f7f6; color: #2b2b2b; }
     
-    /* Vriendelijke, moderne blauwe knoppen */
     .stButton>button { 
-        border-radius: 8px; 
-        font-weight: 600; 
-        background-color: #4A90E2;
-        color: white;
-        border: none;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        transition: all 0.3s ease;
-        padding: 0.5rem 2rem;
+        border-radius: 8px; font-weight: 600; background-color: #4A90E2;
+        color: white; border: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        transition: all 0.3s ease; padding: 0.5rem 2rem;
     }
     .stButton>button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 12px rgba(0,0,0,0.15);
-        color: white;
+        transform: translateY(-2px); box-shadow: 0 6px 12px rgba(0,0,0,0.15);
         background-color: #357ABD;
     }
     
-    /* Stijlvolle witte vlakken (Cards) voor de vragen */
     div[data-testid="stForm"] {
-        background-color: #ffffff;
-        border-radius: 12px;
-        padding: 2rem;
-        border: 1px solid #e1e4e8;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.04);
+        background-color: #ffffff; border-radius: 12px; padding: 2rem;
+        border: 1px solid #e1e4e8; box-shadow: 0 4px 15px rgba(0,0,0,0.04);
     }
+    div[data-testid="stForm"] p, div[data-testid="stForm"] label { color: #333333 !important; }
     
-    /* Tekst in het formulier mooi donkergrijs houden */
-    div[data-testid="stForm"] p, div[data-testid="stForm"] label {
-        color: #333333 !important;
-    }
-    
-    /* Verberg standaard Streamlit elementen */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
+    #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
     </style>
 """, unsafe_allow_html=True)
 
 CLASSES: List[str] = ["5HW", "5ECWI", "5ECMT", "5MT", "5WEMT", "5WEWI", "5WEWIC", "6ECMT", "6MT", "6WEWI", "6ECWI", "6HW"]
 
-# De vertaal-woordenboeken (Decoupling UI van Database)
-MAP_ACTIVITY = {
-    "Very passive": 1, "Rather passive": 2, "Neutral": 3, "Active": 4, "Very active": 5
-}
-MAP_FREQ = {
-    "Not at all": 1, "Rarely": 2, "Sometimes": 3, "Usually": 4, "Always": 5
-}
-MAP_ENG = {
-    "Mostly Dutch": 1, "More Dutch than English": 2, "Half/Half": 3, "Mostly English": 4, "100% English": 5
-}
-MAP_ENJOY = {
-    "Very boring": 1, "Rather boring": 2, "Neutral": 3, "Stimulating": 4, "Very stimulating": 5
-}
+MAP_ACTIVITY = { "Very passive": 1, "Rather passive": 2, "Neutral": 3, "Active": 4, "Very active": 5 }
+MAP_FREQ = { "Not at all": 1, "Rarely": 2, "Sometimes": 3, "Usually": 4, "Always": 5 }
+MAP_ENG = { "Mostly Dutch": 1, "More Dutch than English": 2, "Half/Half": 3, "Mostly English": 4, "100% English": 5 }
+MAP_ENJOY = { "Very boring": 1, "Rather boring": 2, "Neutral": 3, "Stimulating": 4, "Very stimulating": 5 }
 
-# Fallback gemiddeldes (Nu op een schaal van 5)
-CLASS_AVG_SKILLS: Dict[str, float] = {
-    'Participation': 3.2, 
-    'Full Sentences': 3.5, 
-    'Exact Words': 2.8, 
-    'English Only': 3.0,
-    'Enjoyment': 3.8
+# Tidelijke nep-data om de vergelijking tussen klassen visueel cool te maken
+MOCK_CLASS_DATA = {
+    "5HW": [3.2, 3.5, 2.8, 3.0, 3.8],
+    "5MT": [4.0, 3.0, 3.8, 3.2, 4.1],
+    "6WEWI": [3.5, 4.2, 4.0, 4.5, 3.5],
+    "DEFAULT": [3.0, 3.0, 3.0, 3.0, 3.0]
 }
 
 @dataclass
@@ -116,15 +83,9 @@ class SupabaseButler:
         user_key = first_name.lower().strip()
         try:
             response = self.client.table(self.table_students).select("*").eq("user_key", user_key).execute()
-            if len(response.data) > 0:
-                return False  
+            if len(response.data) > 0: return False  
             
-            new_student = {
-                "user_key": user_key,
-                "first_name": first_name,
-                "class_name": student_class,
-                "hashed_code": self._hash_password(reg_code)
-            }
+            new_student = { "user_key": user_key, "first_name": first_name, "class_name": student_class, "hashed_code": self._hash_password(reg_code) }
             self.client.table(self.table_students).insert(new_student).execute()
             return True
         except Exception as e:
@@ -135,17 +96,11 @@ class SupabaseButler:
         user_key = first_name.lower().strip()
         try:
             response = self.client.table(self.table_students).select("*").eq("user_key", user_key).execute()
-            if len(response.data) == 0:
-                return None  
+            if len(response.data) == 0: return None  
                 
             student_data = response.data[0]
             if student_data["hashed_code"] == self._hash_password(reg_code):
-                return StudentProfile(
-                    first_name=student_data["first_name"],
-                    student_class=student_data["class_name"],
-                    is_authenticated=True,
-                    user_key=user_key
-                )
+                return StudentProfile(first_name=student_data["first_name"], student_class=student_data["class_name"], is_authenticated=True, user_key=user_key)
             return None 
         except Exception as e:
             st.error(f"Login fout: {e}")
@@ -154,12 +109,9 @@ class SupabaseButler:
     def log_pulse(self, user_key: str, class_name: str, scores: Dict[str, int]) -> bool:
         try:
             log_entry = {
-                "user_key": user_key,
-                "class_name": class_name,
-                "participation": scores["participation"],
-                "full_sentences": scores["full_sentences"],
-                "exact_words": scores["exact_words"],
-                "english_only": scores["english_only"],
+                "user_key": user_key, "class_name": class_name,
+                "participation": scores["participation"], "full_sentences": scores["full_sentences"],
+                "exact_words": scores["exact_words"], "english_only": scores["english_only"],
                 "lesson_enjoyment": scores["lesson_enjoyment"]
             }
             self.client.table(self.table_logs).insert(log_entry).execute()
@@ -186,100 +138,82 @@ def render_auth_screen() -> None:
     st.write("---")
     
     col_space1, col_main, col_space2 = st.columns([1, 2, 1])
-    
     with col_main:
         tab_login, tab_register = st.tabs(["🔐 Login", "📝 Register"])
-        
         with tab_register:
             with st.form("register_form"):
                 new_name = st.text_input("First Name (This will be your login)")
                 new_class = st.selectbox("Class", CLASSES)
                 new_code = st.text_input("Create a Registration Code (Password)", type="password")
-                
                 if st.form_submit_button("Create Profile"):
                     if new_name and new_code:
-                        if db_butler.register_student(new_name, new_class, new_code):
-                            st.success("Profile created! Go to the Login tab.")
-                        else:
-                            st.error("This name is already taken. Choose another or login.")
-                    else:
-                        st.warning("Please fill in all fields!")
+                        if db_butler.register_student(new_name, new_class, new_code): st.success("Profile created! Go to the Login tab.")
+                        else: st.error("This name is already taken. Choose another or login.")
+                    else: st.warning("Please fill in all fields!")
 
         with tab_login:
             with st.form("login_form"):
                 login_name = st.text_input("First Name")
                 login_code = st.text_input("Registration Code", type="password")
-                
                 if st.form_submit_button("Enter vvXP Tracker"):
                     user_profile = db_butler.login_student(login_name, login_code)
                     if user_profile:
                         st.session_state.current_user = user_profile
                         st.rerun() 
-                    else:
-                        st.error("Oops! Wrong name or code.")
+                    else: st.error("Oops! Wrong name or code.")
 
 def generate_feedback_text(skill_name: str, student_score: int, class_avg: float) -> str:
-    if student_score > class_avg:
-        return f"🌟 **{skill_name}**: Awesome! You scored higher than the class average."
-    elif student_score == class_avg or (student_score >= 4 and class_avg >= 4):
-        return f"✅ **{skill_name}**: Solid work! You are right on track with the rest of your class."
-    else:
-        return f"🚀 **{skill_name}**: Room to grow! Try to focus a bit more on this next time."
+    if student_score > class_avg: return f"🌟 **{skill_name}**: Awesome! You scored higher than the average."
+    elif student_score == class_avg or (student_score >= 4 and class_avg >= 4): return f"✅ **{skill_name}**: Solid work! You are right on track."
+    else: return f"🚀 **{skill_name}**: Room to grow! Try to focus a bit more on this next time."
 
-def render_radar_chart(student_scores: List[int]) -> None:
-    class_skills = list(CLASS_AVG_SKILLS.values())
-    categories = list(CLASS_AVG_SKILLS.keys())
-    
+def render_radar_chart(student_scores: List[int], selected_classes: List[str]) -> None:
+    categories = ['Participation', 'Full Sentences', 'Exact Words', 'English Only', 'Enjoyment']
     fig_radar = go.Figure()
     
-    # Gemiddelde van de klas (zachtgrijs)
-    fig_radar.add_trace(go.Scatterpolar(
-        r=class_skills, theta=categories, fill='toself', 
-        name=f'{st.session_state.current_user.student_class} Average',
-        line_color='rgba(150, 150, 150, 0.5)', 
-        fillcolor='rgba(200, 200, 200, 0.2)',
-        line_shape='spline'
-    ))
+    # Palet met heldere, frisse kleuren voor de vergelijkende klassen
+    color_palette = [
+        ('rgba(255, 107, 107, 1)', 'rgba(255, 107, 107, 0.15)'),   # Koraal Rood
+        ('rgba(78, 205, 196, 1)', 'rgba(78, 205, 196, 0.15)'),     # Mint Groen
+        ('rgba(155, 93, 229, 1)', 'rgba(155, 93, 229, 0.15)'),     # Paars
+        ('rgba(255, 159, 28, 1)', 'rgba(255, 159, 28, 0.15)')      # Oranje
+    ]
     
-    # Score van de leerling (Helder, fris blauw)
+    # Voeg een lijn toe voor elke geselecteerde klas
+    for idx, cls in enumerate(selected_classes):
+        # Haal nep-data op, of gebruik DEFAULT als de klas er niet in staat
+        cls_data = MOCK_CLASS_DATA.get(cls, MOCK_CLASS_DATA["DEFAULT"])
+        line_col, fill_col = color_palette[idx % len(color_palette)]
+        
+        fig_radar.add_trace(go.Scatterpolar(
+            r=cls_data, theta=categories, fill='toself', 
+            name=f'Average {cls}',
+            line_color=line_col, fillcolor=fill_col,
+            line_shape='spline', line_width=2
+        ))
+    
+    # Score van de leerling knalt eruit met een dikke blauwe lijn
     fig_radar.add_trace(go.Scatterpolar(
         r=student_scores, theta=categories, fill='toself', name='Your Score',
-        line_color='#4A90E2', 
-        fillcolor='rgba(74, 144, 226, 0.3)',
-        line_shape='spline',
-        line_width=3
+        line_color='#4A90E2', fillcolor='rgba(74, 144, 226, 0.3)',
+        line_shape='spline', line_width=4
     ))
     
-    # Lichte, strakke styling van de Plotly grafiek
+    # Strakke, lichte styling
     fig_radar.update_layout(
         template="plotly_white",
         polar=dict(
-            radialaxis=dict(
-                visible=True, 
-                range=[0, 5], 
-                gridcolor='#e5e5e5', 
-                tickfont=dict(color='#888', size=10),
-                tickangle=0
-            ),
-            angularaxis=dict(
-                gridcolor='#e5e5e5',
-                tickfont=dict(size=13, color='#333', weight='bold')
-            )
+            radialaxis=dict(visible=True, range=[0, 5], gridcolor='#e5e5e5', tickfont=dict(color='#888', size=10), tickangle=0),
+            angularaxis=dict(gridcolor='#e5e5e5', tickfont=dict(size=13, color='#333', weight='bold'))
         ),
-        showlegend=True, 
-        legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
-        paper_bgcolor='rgba(0,0,0,0)', 
-        plot_bgcolor='rgba(0,0,0,0)',
+        showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
         margin=dict(l=60, r=60, t=40, b=40)
     )
     st.plotly_chart(fig_radar, use_container_width=True)
 
 def render_dashboard() -> None:
     user = st.session_state.current_user
-    
-    # --- DE FIX VOOR DE ATTRIBUTE ERROR ---
-    # Controleer of het oude rugzakje (sessie) nog gebruikt wordt. 
-    # Zo ja? Gebruik de voornaam als fallback.
     safe_user_key = getattr(user, 'user_key', user.first_name.lower().strip())
     
     col1, col2 = st.columns([8, 1])
@@ -302,7 +236,6 @@ def render_dashboard() -> None:
         with col_form:
             st.markdown("### Weekly Pulse")
             with st.form("pulse_form"):
-                
                 q1 = st.select_slider("1. How active were you in class today?", options=list(MAP_ACTIVITY.keys()))
                 st.write("") 
                 q2 = st.select_slider("2. Did you try to answer in full sentences?", options=list(MAP_FREQ.keys()))
@@ -316,14 +249,9 @@ def render_dashboard() -> None:
                 st.write("---")
                 if st.form_submit_button("🚀 Submit & Earn XP"):
                     scores_dict = {
-                        "participation": MAP_ACTIVITY[q1],
-                        "full_sentences": MAP_FREQ[q2],
-                        "exact_words": MAP_FREQ[q3],
-                        "english_only": MAP_ENG[q4],
-                        "lesson_enjoyment": MAP_ENJOY[q5]
+                        "participation": MAP_ACTIVITY[q1], "full_sentences": MAP_FREQ[q2],
+                        "exact_words": MAP_FREQ[q3], "english_only": MAP_ENG[q4], "lesson_enjoyment": MAP_ENJOY[q5]
                     }
-                    
-                    # Hier gebruiken we de veilige "safe_user_key"
                     if db_butler.log_pulse(safe_user_key, user.student_class, scores_dict):
                         st.success("Awesome! Data logged and XP earned! 🎯")
                         st.session_state.recent_scores = scores_dict
@@ -333,27 +261,30 @@ def render_dashboard() -> None:
             if st.session_state.recent_scores:
                 scores = st.session_state.recent_scores
                 student_array = [
-                    scores["participation"], 
-                    scores["full_sentences"], 
-                    scores["exact_words"], 
-                    scores["english_only"],
-                    scores["lesson_enjoyment"]
+                    scores["participation"], scores["full_sentences"], 
+                    scores["exact_words"], scores["english_only"], scores["lesson_enjoyment"]
                 ]
                 
                 st.markdown("### Your Growth Radar")
-                render_radar_chart(student_array)
+                
+                # De nieuwe Multi-Select Dropdown!
+                compare_classes = st.multiselect(
+                    "Compare your score with:",
+                    options=CLASSES,
+                    default=[user.student_class], # Selecteert standaard hun eigen klas
+                    max_selections=4 # Voorkom een onleesbare grafiek
+                )
+                
+                render_radar_chart(student_array, compare_classes)
                 
                 st.markdown("### AI Coach Feedback")
-                st.info(generate_feedback_text("Participation", scores["participation"], CLASS_AVG_SKILLS["Participation"]))
-                st.info(generate_feedback_text("Full Sentences", scores["full_sentences"], CLASS_AVG_SKILLS["Full Sentences"]))
-                st.info(generate_feedback_text("Exact Words", scores["exact_words"], CLASS_AVG_SKILLS["Exact Words"]))
-                st.info(generate_feedback_text("English Only", scores["english_only"], CLASS_AVG_SKILLS["English Only"]))
+                # Voor de feedback gebruiken we nu even de "DEFAULT" mock score (gemiddelde 3.0)
+                default_avg = MOCK_CLASS_DATA["DEFAULT"][0] 
+                st.info(generate_feedback_text("Participation", scores["participation"], default_avg))
+                st.info(generate_feedback_text("Full Sentences", scores["full_sentences"], default_avg))
+                st.info(generate_feedback_text("Exact Words", scores["exact_words"], default_avg))
+                st.info(generate_feedback_text("English Only", scores["english_only"], default_avg))
                 
-                if scores["lesson_enjoyment"] >= 4:
-                    st.success("🌟 Glad you enjoyed the lesson today!")
-                elif scores["lesson_enjoyment"] <= 2:
-                    st.warning("💡 We'll try to make it more engaging next time!")
-                    
             else:
                 st.info("👈 Fill in your Pulse Check on the left to unlock your Radar and personalized feedback!")
 
