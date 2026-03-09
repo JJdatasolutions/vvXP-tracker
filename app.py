@@ -5,7 +5,6 @@ import hashlib
 from dataclasses import dataclass
 from typing import Optional, Dict, List, Any
 
-# Database & AI imports
 from supabase import create_client, Client
 import google.generativeai as genai
 
@@ -57,13 +56,12 @@ class UserProfile:
     is_teacher: bool = False
 
 # ==========================================
-# DEEL 2: DE SERVICE LAYER (Supabase & Gemini AI)
+# DEEL 2: DE SERVICE LAYER
 # ==========================================
 
 class CoreServices:
     def __init__(self) -> None:
         try:
-            # Init database
             url: str = st.secrets["SUPABASE_URL"]
             key: str = st.secrets["SUPABASE_KEY"]
             self.db: Client = create_client(url, key)
@@ -71,11 +69,8 @@ class CoreServices:
             self.table_logs = "pulse_logs"
             self.table_reflections = "eval_reflections"
             
-            # Init AI (Gemini)
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-            # We gebruiken het snelle 1.5 flash model
             self.ai_model = genai.GenerativeModel('gemini-1.5-flash')
-            
         except KeyError as e:
             st.error(f"Systeemfout: Configuratie {e} ontbreekt in geheimen.")
             st.stop()
@@ -88,7 +83,6 @@ class CoreServices:
         try:
             response = self.db.table(self.table_students).select("*").eq("user_key", user_key).execute()
             if len(response.data) > 0: return False  
-            
             new_student = { "user_key": user_key, "first_name": first_name, "class_name": student_class, "hashed_code": self._hash_password(reg_code) }
             self.db.table(self.table_students).insert(new_student).execute()
             return True
@@ -99,10 +93,8 @@ class CoreServices:
         try:
             response = self.db.table(self.table_students).select("*").eq("user_key", user_key).execute()
             if len(response.data) == 0: return None  
-                
             student_data = response.data[0]
             if student_data["hashed_code"] == self._hash_password(reg_code):
-                # RBAC Logica: check of het de leraar is
                 is_teacher = (user_key == "johanj") 
                 return UserProfile(first_name=student_data["first_name"], student_class=student_data["class_name"], user_key=user_key, is_authenticated=True, is_teacher=is_teacher)
             return None 
@@ -123,8 +115,7 @@ class CoreServices:
         try:
             response = self.db.table(self.table_logs).select("*").execute()
             data = response.data
-            if not data: return [3.0, 3.0, 3.0, 3.0, 3.0] 
-                
+            if not data: return [3.0]*5
             n = len(data)
             return [
                 sum(row["participation"] for row in data) / n,
@@ -133,7 +124,23 @@ class CoreServices:
                 sum(row["english_only"] for row in data) / n,
                 sum(row["lesson_enjoyment"] for row in data) / n
             ]
-        except Exception: return [3.0, 3.0, 3.0, 3.0, 3.0]
+        except Exception: return [3.0]*5
+
+    def get_student_averages(self, user_key: str) -> List[float]:
+        """Berekent het all-time gemiddelde van een specifieke leerling."""
+        try:
+            response = self.db.table(self.table_logs).select("*").eq("user_key", user_key).execute()
+            data = response.data
+            if not data: return [0.0]*5 # Geef 0 terug als er nog geen data is
+            n = len(data)
+            return [
+                sum(row["participation"] for row in data) / n,
+                sum(row["full_sentences"] for row in data) / n,
+                sum(row["exact_words"] for row in data) / n,
+                sum(row["english_only"] for row in data) / n,
+                sum(row["lesson_enjoyment"] for row in data) / n
+            ]
+        except Exception: return [0.0]*5
 
     def log_reflection(self, data: Dict[str, Any]) -> bool:
         try:
@@ -154,34 +161,22 @@ class CoreServices:
         except Exception: return pd.DataFrame()
 
     def generate_ai_summary(self, strengths: List[str], weaknesses: List[str]) -> str:
-        """Gebruikt Google Gemini om een educatieve samenvatting te maken van ruwe leerling-data."""
-        if not strengths and not weaknesses: 
-            return "Geen data beschikbaar om te analyseren."
-            
+        if not strengths and not weaknesses: return "Geen data beschikbaar om te analyseren."
         prompt = f"""
         You are an expert educational AI assistant helping a language teacher named Johan. 
         Below is the raw feedback from students regarding a recent evaluation.
-        
-        STRENGTHS MENTIONED BY STUDENTS:
-        {strengths}
-        
-        WEAKNESSES/STRUGGLES MENTIONED BY STUDENTS:
-        {weaknesses}
-        
-        Please provide a professional, insightful, and actionable summary for the teacher. 
-        Highlight the common themes in what went well and what needs more attention in future lessons.
-        Structure the response with a short intro, bullet points for strengths, bullet points for areas of improvement, and a teaching tip.
+        STRENGTHS MENTIONED: {strengths}
+        WEAKNESSES MENTIONED: {weaknesses}
+        Provide a professional, insightful, and actionable summary for the teacher. 
+        Highlight common themes. Structure with a short intro, bullet points for strengths, bullet points for areas of improvement, and a teaching tip.
         """
-        try:
-            response = self.ai_model.generate_content(prompt)
-            return response.text
-        except Exception as e:
-            return f"⚠️ AI Summary failed to generate. Please check your API key. Error: {e}"
+        try: return self.ai_model.generate_content(prompt).text
+        except Exception as e: return f"⚠️ AI Summary failed. Check your API key. Error: {e}"
 
 services = CoreServices()
 
 # ==========================================
-# DEEL 3A: STUDENT SCHERMEN (UI & Logica)
+# DEEL 3A: STUDENT SCHERMEN
 # ==========================================
 
 def generate_smart_challenge(skill_name: str, score: int, avg: float) -> str:
@@ -199,21 +194,37 @@ def generate_smart_challenge(skill_name: str, score: int, avg: float) -> str:
         else: return "🚀 **Exact Words**: **Challenge:** When you can't find a word, try to describe it in English (e.g., 'the thing you use to...') instead of giving up."
     return ""
 
-def render_radar_chart(student_scores: List[int], global_averages: List[float]) -> None:
+def render_radar_chart(student_recent: List[int], student_avg: List[float], global_avg: List[float]) -> None:
     categories = ['Participation', 'Full Sentences', 'Exact Words', 'English Only', 'Enjoyment']
     closed_cat = categories + [categories[0]]
-    closed_stud = student_scores + [student_scores[0]]
-    closed_glob = global_averages + [global_averages[0]]
+    
+    # Sluit alle 3 de lijnen
+    closed_recent = student_recent + [student_recent[0]]
+    closed_avg = student_avg + [student_avg[0]]
+    closed_glob = global_avg + [global_avg[0]]
     
     fig_radar = go.Figure()
+    
+    # Lijn 1: Schoolgemiddelde (Grijs)
     fig_radar.add_trace(go.Scatterpolar(
-        r=closed_glob, theta=closed_cat, fill='toself', name='All Students Average',
+        r=closed_glob, theta=closed_cat, fill='toself', name='School Average',
         line_color='rgba(150, 150, 150, 0.5)', fillcolor='rgba(200, 200, 200, 0.2)', line_shape='spline', line_width=2
     ))
+    
+    # Lijn 2: Persoonlijk All-time Gemiddelde (Donkerder blauw, stippellijn, niet gevuld)
+    # Check of ze al een gemiddelde hebben, anders heeft deze lijn geen zin
+    if any(val > 0 for val in student_avg):
+        fig_radar.add_trace(go.Scatterpolar(
+            r=closed_avg, theta=closed_cat, fill='none', name='Your All-Time Avg',
+            line_color='#2c5c91', line_dash='dash', line_shape='spline', line_width=3
+        ))
+        
+    # Lijn 3: Score van Vandaag (Helder blauw, gevuld)
     fig_radar.add_trace(go.Scatterpolar(
-        r=closed_stud, theta=closed_cat, fill='toself', name='Your Score',
+        r=closed_recent, theta=closed_cat, fill='toself', name='Today\'s Score',
         line_color='#4A90E2', fillcolor='rgba(74, 144, 226, 0.3)', line_shape='spline', line_width=4
     ))
+    
     fig_radar.update_layout(
         template="plotly_white",
         polar=dict(radialaxis=dict(visible=True, range=[0, 5], gridcolor='#e5e5e5'), angularaxis=dict(gridcolor='#e5e5e5', tickfont=dict(size=13, color='#333', weight='bold'))),
@@ -227,8 +238,7 @@ def render_student_dashboard() -> None:
     safe_user_key = getattr(user, 'user_key', user.first_name.lower().strip())
     
     col1, col2 = st.columns([8, 1])
-    with col1:
-        st.markdown(f"<h2>Sup <span style='color: #4A90E2;'>{user.first_name}</span>! 👋</h2>", unsafe_allow_html=True)
+    with col1: st.markdown(f"<h2>Sup <span style='color: #4A90E2;'>{user.first_name}</span>! 👋</h2>", unsafe_allow_html=True)
     with col2:
         if st.button("Logout"):
             st.session_state.current_user = UserProfile(first_name="", student_class="", user_key="")
@@ -262,11 +272,14 @@ def render_student_dashboard() -> None:
         with col_charts:
             if st.session_state.recent_scores:
                 scores = st.session_state.recent_scores
-                student_array = [scores["participation"], scores["full_sentences"], scores["exact_words"], scores["english_only"], scores["lesson_enjoyment"]]
+                student_recent_array = [scores["participation"], scores["full_sentences"], scores["exact_words"], scores["english_only"], scores["lesson_enjoyment"]]
+                
+                # Haal beide gemiddeldes op
                 global_averages = services.get_global_averages()
+                student_averages = services.get_student_averages(safe_user_key)
                 
                 st.markdown("### Your Growth Radar")
-                render_radar_chart(student_array, global_averages)
+                render_radar_chart(student_recent_array, student_averages, global_averages)
                 
                 st.markdown("### AI Coach Feedback")
                 st.info(generate_smart_challenge("Participation", scores["participation"], global_averages[0]))
@@ -282,11 +295,9 @@ def render_student_dashboard() -> None:
             colA, colB = st.columns(2)
             with colA: eval_skill = st.selectbox("Which skill was evaluated?", SKILLS)
             with colB: eval_unit = st.selectbox("Which unit?", UNITS)
-                
             st.write("---")
             q_sat = st.select_slider("How satisfied are you with your grade?", options=list(MAP_SATISFACTION.keys()))
             q_prep = st.select_slider("How well did you prepare for this?", options=list(MAP_PREP.keys()))
-            
             st.write("---")
             text_strengths = st.text_area("What went well? (Strengths) 💪", placeholder="e.g., I knew all the vocabulary...")
             text_weaknesses = st.text_area("What needs improvement? (Weaknesses) 🎯", placeholder="e.g., I struggled with grammar rules...")
@@ -299,10 +310,8 @@ def render_student_dashboard() -> None:
                         "satisfaction": MAP_SATISFACTION[q_sat], "preparation": MAP_PREP[q_prep],
                         "strengths": text_strengths, "weaknesses": text_weaknesses
                     }
-                    if services.log_reflection(data):
-                        st.success("Reflection securely saved to your portfolio!")
-                else:
-                    st.warning("Please fill in both your strengths and weaknesses.")
+                    if services.log_reflection(data): st.success("Reflection securely saved to your portfolio!")
+                else: st.warning("Please fill in both your strengths and weaknesses.")
 
 # ==========================================
 # DEEL 3B: TEACHER DASHBOARD (RBAC & AI)
@@ -320,7 +329,6 @@ def render_teacher_dashboard() -> None:
     with tab_analytics:
         st.markdown("### Top & Bottom Performers")
         df_pulse = services.get_all_pulses()
-        
         if not df_pulse.empty:
             col_f1, col_f2 = st.columns(2)
             with col_f1: filter_class = st.selectbox("Filter by Class", ["All"] + CLASSES)
@@ -328,8 +336,7 @@ def render_teacher_dashboard() -> None:
                 metrics = ["participation", "full_sentences", "exact_words", "english_only", "lesson_enjoyment"]
                 target_metric = st.selectbox("Select Metric to analyze", metrics)
                 
-            if filter_class != "All":
-                df_pulse = df_pulse[df_pulse['class_name'] == filter_class]
+            if filter_class != "All": df_pulse = df_pulse[df_pulse['class_name'] == filter_class]
                 
             if not df_pulse.empty:
                 avg_scores = df_pulse.groupby('user_key')[target_metric].mean().reset_index()
@@ -348,7 +355,6 @@ def render_teacher_dashboard() -> None:
     with tab_reflections:
         st.markdown("### Class Evaluation Overview")
         df_ref = services.get_all_reflections()
-        
         if not df_ref.empty:
             col_r1, col_r2, col_r3 = st.columns(3)
             with col_r1: ref_class = st.selectbox("Class", CLASSES, key="r_class")
@@ -360,15 +366,12 @@ def render_teacher_dashboard() -> None:
             
             if not filtered_ref.empty:
                 st.write("---")
-                # Verzamel teksten voor de AI
                 all_str = filtered_ref['strengths'].dropna().tolist()
                 all_weak = filtered_ref['weaknesses'].dropna().tolist()
                 
                 st.markdown("#### 🤖 Gemini AI Executive Summary")
-                # Laad-spinner terwijl Google de teksten leest
                 with st.spinner("Analyzing student feedback with Google Gemini..."):
                     ai_summary = services.generate_ai_summary(all_str, all_weak)
-                    
                 st.markdown(f"<div style='background-color: #e8f4fd; padding: 20px; border-radius: 10px; border-left: 5px solid #4A90E2;'>{ai_summary}</div>", unsafe_allow_html=True)
                 
                 st.write("---")
@@ -390,10 +393,8 @@ def render_teacher_dashboard() -> None:
 # ==========================================
 
 def init_session() -> None:
-    if 'current_user' not in st.session_state:
-        st.session_state.current_user = UserProfile(first_name="", student_class="", user_key="")
-    if 'recent_scores' not in st.session_state:
-        st.session_state.recent_scores = None
+    if 'current_user' not in st.session_state: st.session_state.current_user = UserProfile(first_name="", student_class="", user_key="")
+    if 'recent_scores' not in st.session_state: st.session_state.recent_scores = None
 
 def render_auth_screen() -> None:
     st.markdown("<h1 style='text-align: center; color: #4A90E2;'>⚡ vvXP Tracker</h1>", unsafe_allow_html=True)
@@ -425,14 +426,10 @@ def render_auth_screen() -> None:
 def main() -> None:
     init_session()
     user = st.session_state.current_user
-    
-    if not user.is_authenticated:
-        render_auth_screen()
+    if not user.is_authenticated: render_auth_screen()
     else:
-        if user.is_teacher:
-            render_teacher_dashboard()
-        else:
-            render_student_dashboard()
+        if user.is_teacher: render_teacher_dashboard()
+        else: render_student_dashboard()
 
 if __name__ == "__main__":
     main()
