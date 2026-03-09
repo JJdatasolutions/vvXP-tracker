@@ -13,41 +13,48 @@ from supabase import create_client, Client
 
 st.set_page_config(page_title="vvXP Tracker", page_icon="⚡", layout="wide")
 
-# Custom CSS voor een premium, modern design (Dark theme accents)
+# Custom CSS voor een LICHT, fris en modern design
 st.markdown("""
     <style>
-    /* Algemene achtergrond en lettertype tweaks */
+    /* Algemene achtergrond en tekstkleur */
     .stApp {
-        background-color: #0e1117;
-        color: #fafafa;
+        background-color: #f4f7f6;
+        color: #2b2b2b;
     }
     
-    /* Gestileerde knoppen met neon-effect op hover */
+    /* Vriendelijke, moderne blauwe knoppen */
     .stButton>button { 
         border-radius: 8px; 
         font-weight: 600; 
-        background: linear-gradient(90deg, #00f2fe 0%, #4facfe 100%);
+        background-color: #4A90E2;
         color: white;
         border: none;
-        transition: all 0.3s ease 0s;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        transition: all 0.3s ease;
         padding: 0.5rem 2rem;
     }
     .stButton>button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(0, 242, 254, 0.4);
+        box-shadow: 0 6px 12px rgba(0,0,0,0.15);
         color: white;
+        background-color: #357ABD;
     }
     
-    /* Stijlvolle vlakken/cards voor de vragen */
+    /* Stijlvolle witte vlakken (Cards) voor de vragen */
     div[data-testid="stForm"] {
-        background-color: #1a1c23;
-        border-radius: 15px;
+        background-color: #ffffff;
+        border-radius: 12px;
         padding: 2rem;
-        border: 1px solid #2d303a;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        border: 1px solid #e1e4e8;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.04);
     }
     
-    /* Verberg standaard Streamlit elementen voor een app-gevoel */
+    /* Tekst in het formulier mooi donkergrijs houden */
+    div[data-testid="stForm"] p, div[data-testid="stForm"] label {
+        color: #333333 !important;
+    }
+    
+    /* Verberg standaard Streamlit elementen */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
@@ -153,7 +160,7 @@ class SupabaseButler:
                 "full_sentences": scores["full_sentences"],
                 "exact_words": scores["exact_words"],
                 "english_only": scores["english_only"],
-                "lesson_enjoyment": scores["lesson_enjoyment"] # Onze nieuwe kolom!
+                "lesson_enjoyment": scores["lesson_enjoyment"]
             }
             self.client.table(self.table_logs).insert(log_entry).execute()
             return True
@@ -174,8 +181,8 @@ def init_session() -> None:
         st.session_state.recent_scores = None
 
 def render_auth_screen() -> None:
-    st.markdown("<h1 style='text-align: center; color: #00f2fe;'>⚡ vvXP Tracker</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #888;'>Track your progress, earn XP and level up your English.</p>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: #4A90E2;'>⚡ vvXP Tracker</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #666;'>Track your progress, earn XP and level up your English.</p>", unsafe_allow_html=True)
     st.write("---")
     
     col_space1, col_main, col_space2 = st.columns([1, 2, 1])
@@ -225,38 +232,38 @@ def render_radar_chart(student_scores: List[int]) -> None:
     
     fig_radar = go.Figure()
     
-    # Gemiddelde van de klas (grijze, transparante achtergrond)
+    # Gemiddelde van de klas (zachtgrijs)
     fig_radar.add_trace(go.Scatterpolar(
         r=class_skills, theta=categories, fill='toself', 
         name=f'{st.session_state.current_user.student_class} Average',
-        line_color='rgba(255, 255, 255, 0.3)', 
-        fillcolor='rgba(255, 255, 255, 0.05)',
-        line_shape='spline' # Zorgt voor mooie, vloeiende rondingen
+        line_color='rgba(150, 150, 150, 0.5)', 
+        fillcolor='rgba(200, 200, 200, 0.2)',
+        line_shape='spline'
     ))
     
-    # Score van de leerling (Neon blauw)
+    # Score van de leerling (Helder, fris blauw)
     fig_radar.add_trace(go.Scatterpolar(
         r=student_scores, theta=categories, fill='toself', name='Your Score',
-        line_color='#00f2fe', 
-        fillcolor='rgba(0, 242, 254, 0.25)',
+        line_color='#4A90E2', 
+        fillcolor='rgba(74, 144, 226, 0.3)',
         line_shape='spline',
         line_width=3
     ))
     
-    # Styling van de Plotly grafiek
+    # Lichte, strakke styling van de Plotly grafiek
     fig_radar.update_layout(
-        template="plotly_dark",
+        template="plotly_white",
         polar=dict(
             radialaxis=dict(
                 visible=True, 
                 range=[0, 5], 
-                gridcolor='#333', 
+                gridcolor='#e5e5e5', 
                 tickfont=dict(color='#888', size=10),
                 tickangle=0
             ),
             angularaxis=dict(
-                gridcolor='#333',
-                tickfont=dict(size=14, color='#e0e0e0')
+                gridcolor='#e5e5e5',
+                tickfont=dict(size=13, color='#333', weight='bold')
             )
         ),
         showlegend=True, 
@@ -270,9 +277,14 @@ def render_radar_chart(student_scores: List[int]) -> None:
 def render_dashboard() -> None:
     user = st.session_state.current_user
     
+    # --- DE FIX VOOR DE ATTRIBUTE ERROR ---
+    # Controleer of het oude rugzakje (sessie) nog gebruikt wordt. 
+    # Zo ja? Gebruik de voornaam als fallback.
+    safe_user_key = getattr(user, 'user_key', user.first_name.lower().strip())
+    
     col1, col2 = st.columns([8, 1])
     with col1:
-        st.markdown(f"<h2>Sup <span style='color: #00f2fe;'>{user.first_name}</span>! 👋</h2>", unsafe_allow_html=True)
+        st.markdown(f"<h2>Sup <span style='color: #4A90E2;'>{user.first_name}</span>! 👋</h2>", unsafe_allow_html=True)
         st.caption(f"Class: {user.student_class} | Status: Online")
     with col2:
         if st.button("Logout"):
@@ -292,14 +304,13 @@ def render_dashboard() -> None:
             with st.form("pulse_form"):
                 
                 q1 = st.select_slider("1. How active were you in class today?", options=list(MAP_ACTIVITY.keys()))
-                st.write("") # Beetje ademruimte
+                st.write("") 
                 q2 = st.select_slider("2. Did you try to answer in full sentences?", options=list(MAP_FREQ.keys()))
                 st.write("")
                 q3 = st.select_slider("3. Did you search for the EXACT right words?", options=list(MAP_FREQ.keys()))
                 st.write("")
                 q4 = st.select_slider("4. Did you speak English the entire time?", options=list(MAP_ENG.keys()))
                 st.write("")
-                # De nieuwe vraag!
                 q5 = st.select_slider("5. How stimulating was today's lesson?", options=list(MAP_ENJOY.keys()))
                 
                 st.write("---")
@@ -312,7 +323,8 @@ def render_dashboard() -> None:
                         "lesson_enjoyment": MAP_ENJOY[q5]
                     }
                     
-                    if db_butler.log_pulse(user.user_key, user.student_class, scores_dict):
+                    # Hier gebruiken we de veilige "safe_user_key"
+                    if db_butler.log_pulse(safe_user_key, user.student_class, scores_dict):
                         st.success("Awesome! Data logged and XP earned! 🎯")
                         st.session_state.recent_scores = scores_dict
                         st.rerun()
