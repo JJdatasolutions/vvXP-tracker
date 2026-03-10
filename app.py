@@ -317,6 +317,40 @@ def render_student_dashboard() -> None:
 # DEEL 3B: TEACHER DASHBOARD (RBAC & AI)
 # ==========================================
 
+def render_teacher_radar_chart(class_avg: List[float], global_avg: List[float], class_name: str) -> None:
+    categories = ['Participation', 'Full Sentences', 'Exact Words', 'English Only', 'Enjoyment']
+    closed_cat = categories + [categories[0]]
+    
+    # Sluit de lijnen voor de polygoon
+    closed_class = class_avg + [class_avg[0]]
+    closed_glob = global_avg + [global_avg[0]]
+    
+    fig_radar = go.Figure()
+    
+    # Lijn 1: Schoolgemiddelde (Grijs)
+    fig_radar.add_trace(go.Scatterpolar(
+        r=closed_glob, theta=closed_cat, fill='toself', name='Global Average',
+        line_color='rgba(150, 150, 150, 0.5)', fillcolor='rgba(200, 200, 200, 0.2)', line_shape='spline', line_width=2
+    ))
+    
+    # Lijn 2: Klasgemiddelde (Blauw, alleen tonen als er op een specifieke klas is gefilterd)
+    if class_name != "All" and any(val > 0 for val in class_avg):
+        fig_radar.add_trace(go.Scatterpolar(
+            r=closed_class, theta=closed_cat, fill='toself', name=f'{class_name} Average',
+            line_color='#4A90E2', fillcolor='rgba(74, 144, 226, 0.3)', line_shape='spline', line_width=4
+        ))
+    
+    fig_radar.update_layout(
+        template="plotly_white",
+        polar=dict(
+            radialaxis=dict(visible=True, range=[0, 5], gridcolor='#e5e5e5'), 
+            angularaxis=dict(gridcolor='#e5e5e5', tickfont=dict(size=13, color='#333', weight='bold'))
+        ),
+        showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=60, r=60, t=40, b=40)
+    )
+    st.plotly_chart(fig_radar, use_container_width=True)
+    
 def render_teacher_dashboard() -> None:
     st.markdown("<h2>🎓 Teacher Analytics: <span style='color: #4A90E2;'>Admin Panel</span></h2>", unsafe_allow_html=True)
     if st.button("Logout"):
@@ -327,19 +361,43 @@ def render_teacher_dashboard() -> None:
     tab_analytics, tab_reflections = st.tabs(["📊 Pulse Analytics", "🧠 AI Reflection Insights"])
     
     with tab_analytics:
-        st.markdown("### Top & Bottom Performers")
         df_pulse = services.get_all_pulses()
         if not df_pulse.empty:
             col_f1, col_f2 = st.columns(2)
             with col_f1: filter_class = st.selectbox("Filter by Class", ["All"] + CLASSES)
             with col_f2:
                 metrics = ["participation", "full_sentences", "exact_words", "english_only", "lesson_enjoyment"]
-                target_metric = st.selectbox("Select Metric to analyze", metrics)
+                target_metric = st.selectbox("Select Metric to analyze (for leaderboards)", metrics)
+            
+            st.write("---")
+            st.markdown("### Radar Overview: Class vs Global")
+            
+            # Bereken het algemene 'Global' gemiddelde over alle data
+            global_avg_df = df_pulse[metrics].mean()
+            global_avg_list = global_avg_df.tolist()
+            
+            # Bereken het Klas gemiddelde (of gebruik global als "All" geselecteerd is)
+            if filter_class != "All": 
+                df_filtered = df_pulse[df_pulse['class_name'] == filter_class]
+                if not df_filtered.empty:
+                    class_avg_list = df_filtered[metrics].mean().tolist()
+                else:
+                    class_avg_list = [0.0] * 5
+                    st.warning(f"No data available yet for class {filter_class}.")
+            else:
+                class_avg_list = global_avg_list
+                df_filtered = df_pulse
                 
-            if filter_class != "All": df_pulse = df_pulse[df_pulse['class_name'] == filter_class]
-                
-            if not df_pulse.empty:
-                avg_scores = df_pulse.groupby('user_key')[target_metric].mean().reset_index()
+            # Toon de radar chart
+            col_chart_space1, col_chart_main, col_chart_space2 = st.columns([1, 2, 1])
+            with col_chart_main:
+                render_teacher_radar_chart(class_avg_list, global_avg_list, filter_class)
+            
+            st.write("---")
+            st.markdown("### Top & Bottom Performers")
+            
+            if not df_filtered.empty:
+                avg_scores = df_filtered.groupby('user_key')[target_metric].mean().reset_index()
                 avg_scores = avg_scores.sort_values(by=target_metric, ascending=False)
                 
                 colA, colB = st.columns(2)
@@ -349,8 +407,10 @@ def render_teacher_dashboard() -> None:
                 with colB:
                     st.error(f"⚠️ Needs Attention ({target_metric})")
                     st.dataframe(avg_scores.tail(5), hide_index=True)
-            else: st.info("No data for this class yet.")
-        else: st.info("No pulse data available in the database.")
+            else: 
+                st.info("No data to show for performers.")
+        else: 
+            st.info("No pulse data available in the database.")
 
     with tab_reflections:
         st.markdown("### Class Evaluation Overview")
