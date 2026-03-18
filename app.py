@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.express as px
 import hashlib
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
@@ -79,7 +80,6 @@ class UserProfile:
     last_pulse_date: Optional[str] = None
     unlocked_badges: List[str] = field(default_factory=list)
 
-
 def calculate_level_stats(xp: int) -> Tuple[int, str, int, int, float]:
     """Returns: current_level, title, current_level_xp_base, next_level_xp_req, progress_percentage"""
     current_level, title, base_xp, next_xp = 1, LEVELS[0]["title"], 0, LEVELS[1]["xp_req"]
@@ -144,7 +144,7 @@ class CoreServices:
             if s_data["hashed_code"] == self._hash_password(reg_code):
                 is_teacher = (user_key == "johanj") 
                 badges = s_data.get("unlocked_badges", [])
-                if isinstance(badges, str): badges = [] # Handle empty json edge cases
+                if isinstance(badges, str): badges = []
                 
                 return UserProfile(
                     first_name=s_data["first_name"], student_class=s_data["class_name"], 
@@ -165,18 +165,17 @@ class CoreServices:
             return pd.DataFrame()
 
     def process_gamification_pulse(self, user: UserProfile, scores: Dict[str, int]) -> Dict[str, Any]:
-        """Calculates XP, handles streak logic, and unlocks badges."""
         today = datetime.now().date()
         streak = user.current_streak
         
-        # 1. Streak Logic (Loss Avoidance)
+        # 1. Streak Logic
         if user.last_pulse_date:
             last_date = datetime.strptime(user.last_pulse_date, "%Y-%m-%d").date()
             days_diff = (today - last_date).days
-            if days_diff <= 10:  # Allow a small buffer for weekly classes
-                if days_diff > 0: streak += 1 # Only increment if it's a new day
+            if days_diff <= 10:  
+                if days_diff > 0: streak += 1 
             else:
-                streak = 1 # Streak broken!
+                streak = 1 
         else:
             streak = 1
             
@@ -186,7 +185,7 @@ class CoreServices:
         earned_xp = int(base_xp * multiplier)
         new_total_xp = user.total_xp + earned_xp
         
-        # 3. Badge Logic (Collection)
+        # 3. Badge Logic
         badges = list(user.unlocked_badges)
         newly_unlocked = []
         
@@ -224,15 +223,12 @@ class CoreServices:
 
     def log_pulse(self, user: UserProfile, scores: Dict[str, int]) -> Optional[Dict[str, Any]]:
         try:
-            # 1. Save Log
             log_entry = {
                 "user_key": user.user_key, "class_name": user.student_class,
                 "participation": scores["participation"], "full_sentences": scores["full_sentences"],
                 "exact_words": scores["exact_words"], "english_only": scores["english_only"], "lesson_enjoyment": scores["lesson_enjoyment"]
             }
             self.db.table(self.table_logs).insert(log_entry).execute()
-            
-            # 2. Process Gamification
             return self.process_gamification_pulse(user, scores)
         except Exception as e: 
             print(f"Error logging pulse: {e}")
@@ -279,6 +275,14 @@ class CoreServices:
             return pd.DataFrame(res.data) if res.data else pd.DataFrame()
         except Exception: return pd.DataFrame()
 
+    def get_all_students(self) -> pd.DataFrame:
+        try:
+            res = self.db.table(self.table_students).select("*").execute()
+            return pd.DataFrame(res.data) if res.data else pd.DataFrame()
+        except Exception as e: 
+            print(f"Error fetching students: {e}")
+            return pd.DataFrame()
+
     def get_all_reflections(self) -> pd.DataFrame:
         try:
             res = self.db.table(self.table_reflections).select("*").execute()
@@ -314,7 +318,6 @@ def render_student_dashboard() -> None:
     user = st.session_state.current_user
     safe_user_key = getattr(user, 'user_key', user.first_name.lower().strip())
     
-    # --- HEADER & GAMIFICATION DASHBOARD ---
     col1, col2 = st.columns([8, 1])
     with col1: st.markdown(f"<h2>Sup <span style='color: #4A90E2;'>{user.first_name}</span>! 👋</h2>", unsafe_allow_html=True)
     with col2:
@@ -323,7 +326,6 @@ def render_student_dashboard() -> None:
             st.session_state.recent_scores = None
             st.rerun()
 
-    # Dynamic Level Info
     lvl, lvl_title, base_xp, next_xp, prog_pct = calculate_level_stats(user.total_xp)
     
     st.markdown("<div class='dashboard-card'>", unsafe_allow_html=True)
@@ -356,7 +358,6 @@ def render_student_dashboard() -> None:
                     
                     game_results = services.log_pulse(user, scores_dict)
                     if game_results:
-                        # Update session state immediately
                         user.total_xp = game_results["new_total_xp"]
                         user.current_streak = game_results["new_streak"]
                         user.unlocked_badges = game_results["new_badges"]
@@ -364,7 +365,6 @@ def render_student_dashboard() -> None:
                         
                         st.success(f"Awesome! You earned +{game_results['earned_xp']} XP! 🎯 " + (f"(Includes {game_results['multiplier']}x Streak Bonus!)" if game_results['multiplier'] > 1.0 else ""))
                         
-                        # Instant Gratification Triggers
                         if game_results["leveled_up"]:
                             st.balloons()
                             st.toast("🎉 LEVEL UP! You reached a new rank!", icon="🌟")
@@ -376,7 +376,6 @@ def render_student_dashboard() -> None:
                         
                         st.rerun()
 
-            # --- TROPHY CABINET ---
             st.markdown("### 🏆 Achievement Cabinet")
             b_cols = st.columns(3)
             for i, (b_key, b_info) in enumerate(BADGE_DICT.items()):
@@ -396,7 +395,6 @@ def render_student_dashboard() -> None:
                 st.markdown("### Your Growth Radar")
                 render_radar_chart(student_recent_array, student_averages, global_averages)
 
-                # AI Feedback (Stubbed for brevity from previous)
                 st.markdown("### AI Coach Feedback")
                 st.info(f"🌟 **English Only**: Your score was {scores['english_only']}/5. Keep striving for 100% immersion!")
             else:
@@ -421,7 +419,38 @@ def render_student_dashboard() -> None:
 # ==========================================
 # DEEL 3B: TEACHER DASHBOARD (De Bediening voor Leraren)
 # ==========================================
-# (Remains largely the same, logic omitted for brevity, ensure you keep the one from your previous code)
+
+def render_teacher_radar_chart(df_pulse: pd.DataFrame, selected_classes: List[str]) -> None:
+    categories = ['participation', 'full_sentences', 'exact_words', 'english_only', 'lesson_enjoyment']
+    display_cat = ['Participation', 'Full Sentences', 'Exact Words', 'English Only', 'Enjoyment', 'Participation']
+    
+    fig_radar = go.Figure()
+    
+    global_avg = df_pulse[categories].mean().tolist()
+    global_avg += [global_avg[0]] 
+    fig_radar.add_trace(go.Scatterpolar(
+        r=global_avg, theta=display_cat, fill='toself', name='Global Average',
+        line_color='rgba(150, 150, 150, 0.5)', fillcolor='rgba(200, 200, 200, 0.2)'
+    ))
+    
+    colors = ['#4A90E2', '#E24A4A', '#50E3C2', '#F5A623', '#9013FE']
+    for i, cls in enumerate(selected_classes):
+        cls_data = df_pulse[df_pulse['class_name'] == cls]
+        if not cls_data.empty:
+            cls_avg = cls_data[categories].mean().tolist()
+            cls_avg += [cls_avg[0]]
+            fig_radar.add_trace(go.Scatterpolar(
+                r=cls_avg, theta=display_cat, fill='toself', name=f'{cls}',
+                line_color=colors[i % len(colors)], opacity=0.7
+            ))
+            
+    fig_radar.update_layout(
+        template="plotly_white",
+        polar=dict(radialaxis=dict(visible=True, range=[0, 5])),
+        showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
+        margin=dict(l=40, r=40, t=40, b=40)
+    )
+    st.plotly_chart(fig_radar, use_container_width=True)
 
 def render_teacher_dashboard() -> None:
     st.markdown("<h2>🎓 Teacher Analytics: <span style='color: #4A90E2;'>Admin Panel</span></h2>", unsafe_allow_html=True)
@@ -429,7 +458,114 @@ def render_teacher_dashboard() -> None:
         st.session_state.current_user = UserProfile(first_name="", student_class="", user_key="")
         st.rerun()
     st.write("---")
-    st.info("Teacher dashboard loaded. (Use existing teacher logic here).")
+    
+    df_pulse = services.get_all_pulses()
+    df_students = services.get_all_students()
+    
+    if df_pulse.empty:
+        st.warning("No pulse data available yet. Let the students log some XP first!")
+        return
+
+    metrics_map = {
+        "Participation": "participation", 
+        "Full Sentences": "full_sentences", 
+        "Exact Words": "exact_words", 
+        "English Only": "english_only", 
+        "Enjoyment": "lesson_enjoyment"
+    }
+    
+    tab_compare, tab_trends, tab_leaderboards = st.tabs(["📊 Class Comparisons", "📈 Trends Over Time", "🏆 Leaderboards & Extremes"])
+    
+    # --- TAB 1: RADAR CHART ---
+    with tab_compare:
+        st.markdown("### Compare Class Averages")
+        st.write("Select two or more classes to compare their performance against the global average.")
+        
+        available_classes = df_pulse['class_name'].unique().tolist()
+        selected_classes = st.multiselect("Select Classes", available_classes, default=available_classes[:2] if len(available_classes) >= 2 else available_classes)
+        
+        col_radar_space1, col_radar, col_radar_space2 = st.columns([1, 2, 1])
+        with col_radar:
+            if selected_classes:
+                render_teacher_radar_chart(df_pulse, selected_classes)
+            else:
+                st.info("Please select at least one class to display the radar chart.")
+
+    # --- TAB 2: TIME-SERIES ---
+    with tab_trends:
+        st.markdown("### Performance Trends Over Time")
+        
+        if 'created_at' in df_pulse.columns:
+            df_pulse['date'] = pd.to_datetime(df_pulse['created_at']).dt.date
+            
+            selected_metrics = st.multiselect("Select Dimensions to Track", list(metrics_map.keys()), default=["Participation", "English Only"])
+            
+            if selected_metrics:
+                db_metrics = [metrics_map[m] for m in selected_metrics]
+                trend_df = df_pulse.groupby('date')[db_metrics].mean().reset_index()
+                
+                trend_melted = trend_df.melt(id_vars=['date'], value_vars=db_metrics, var_name='Metric', value_name='Average Score')
+                trend_melted['Metric'] = trend_melted['Metric'].map({v: k for k, v in metrics_map.items()})
+                
+                fig_line = px.line(trend_melted, x='date', y='Average Score', color='Metric', markers=True, 
+                                   range_y=[0, 5.2], template='plotly_white')
+                fig_line.update_layout(xaxis_title="Date", yaxis_title="Average Score (Out of 5)")
+                st.plotly_chart(fig_line, use_container_width=True)
+            else:
+                st.info("Select at least one dimension to view the trend.")
+        else:
+            st.warning("⚠️ No 'created_at' column found in pulse_logs. Time tracking is not possible without timestamps.")
+
+    # --- TAB 3: LEADERBOARDS ---
+    with tab_leaderboards:
+        st.markdown("### Gamification Top 10")
+        
+        if not df_students.empty:
+            col_xp, col_streak = st.columns(2)
+            
+            with col_xp:
+                st.markdown("#### 🌟 Top 10 XP Earners")
+                top_xp = df_students[['first_name', 'class_name', 'total_xp']].sort_values(by='total_xp', ascending=False).head(10)
+                top_xp.index = range(1, len(top_xp) + 1)
+                st.dataframe(top_xp, use_container_width=True)
+                
+            with col_streak:
+                st.markdown("#### 🔥 Top 10 Longest Streaks")
+                top_streak = df_students[['first_name', 'class_name', 'current_streak']].sort_values(by='current_streak', ascending=False).head(10)
+                top_streak.index = range(1, len(top_streak) + 1)
+                st.dataframe(top_streak, use_container_width=True)
+        else:
+            st.info("No student profiles available for leaderboards.")
+            
+        st.write("---")
+        st.markdown("### Top & Bottom 5 per Dimension")
+        target_dim = st.selectbox("Select Dimension to Analyze", list(metrics_map.keys()))
+        db_dim = metrics_map[target_dim]
+        
+        student_dim_avg = df_pulse.groupby('user_key')[db_dim].mean().reset_index()
+        
+        if not df_students.empty:
+            merged_stats = pd.merge(student_dim_avg, df_students[['user_key', 'first_name', 'class_name']], on='user_key')
+        else:
+            merged_stats = student_dim_avg
+            merged_stats['first_name'] = merged_stats['user_key']
+            merged_stats['class_name'] = "Unknown"
+            
+        merged_stats = merged_stats.sort_values(by=db_dim, ascending=False)
+        merged_stats[db_dim] = merged_stats[db_dim].round(2)
+        
+        col_top, col_bot = st.columns(2)
+        with col_top:
+            st.success(f"🏆 Top 5 - Highest Average in {target_dim}")
+            top_5 = merged_stats[['first_name', 'class_name', db_dim]].head(5)
+            top_5.index = range(1, len(top_5) + 1)
+            st.dataframe(top_5, use_container_width=True)
+            
+        with col_bot:
+            st.error(f"⚠️ Bottom 5 - Needs attention in {target_dim}")
+            bottom_5 = merged_stats[['first_name', 'class_name', db_dim]].tail(5).sort_values(by=db_dim, ascending=True)
+            bottom_5.index = range(1, len(bottom_5) + 1)
+            st.dataframe(bottom_5, use_container_width=True)
 
 # ==========================================
 # DEEL 4: DE MOTOR (Opstarten van de applicatie)
